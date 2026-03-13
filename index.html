@@ -345,6 +345,15 @@
  .b-ig { background: rgba(225,48,108,0.13); color: var(--accent-ig); }
  .b-tt { background: rgba(105,201,208,0.13); color: var(--accent-tt); }
  .b-snap { background: rgba(255,252,0,0.1); color: var(--accent-snap); }
+ .collab-badge { font-size:0.6rem; font-weight:700; padding:2px 7px; border-radius:50px; background:rgba(225,48,108,0.15); color:#e1306c; border:1px solid rgba(225,48,108,0.25); letter-spacing:0.04em; vertical-align:middle; margin-left:4px; }
+ .collab-filter { display:inline-flex; gap:4px; margin-left:8px; }
+ .collab-filter-btn { font-size:0.7rem; padding:4px 10px; border-radius:50px; background:rgba(255,255,255,0.05); color:var(--muted); border:1px solid rgba(255,255,255,0.08); cursor:pointer; transition:all 0.14s; }
+ .collab-filter-btn:hover { background:rgba(255,255,255,0.1); }
+ .collab-filter-btn.active { background:rgba(225,48,108,0.15); color:#e1306c; border-color:rgba(225,48,108,0.3); }
+ .collab-summary { display:flex; gap:16px; padding:12px 16px; margin-bottom:12px; background:rgba(225,48,108,0.05); border:1px solid rgba(225,48,108,0.15); border-radius:var(--radius-md); align-items:center; flex-wrap:wrap; }
+ .collab-summary-stat { text-align:center; }
+ .collab-summary-stat .val { font-size:1.1rem; font-weight:700; color:#e1306c; }
+ .collab-summary-stat .lbl { font-size:0.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; }
  .num { font-variant-numeric: tabular-nums; font-weight: 500; }
  .er { font-size: 0.74rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
  .er-h { background: rgba(74,222,128,0.1); color: var(--green); }
@@ -1313,7 +1322,12 @@
  <h1>All Posts</h1>
  <p>Click the <strong style="color:var(--accent-all)">+</strong> to tag a category on any post</p>
  </div>
- <div class="header-right">
+ <div class="header-right" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+ <div class="collab-filter">
+ <button class="collab-filter-btn active" onclick="setCollabFilter('all',this)">All</button>
+ <button class="collab-filter-btn" onclick="setCollabFilter('own',this)">Own</button>
+ <button class="collab-filter-btn" onclick="setCollabFilter('collab',this)">Collabs</button>
+ </div>
  <select class="sort-sel" id="sortSelect2" onchange="renderPostsPage()">
  <option value="date">Latest first</option>
  <option value="reach">Highest reach</option>
@@ -1329,6 +1343,8 @@
  <div class="ptab" id="ptab2-tt" onclick="filterPlatform('tt')"> TikTok</div>
  <div class="ptab" id="ptab2-snap" onclick="filterPlatform('snap')"> Snapchat</div>
  </div>
+
+ <div class="collab-summary" id="collabSummary" style="display:none"></div>
 
  <div class="posts-card" style="margin-bottom:0">
  <div class="tbl-wrap">
@@ -2362,15 +2378,47 @@ function renderStats() {
 // 
 // POSTS TABLE (used in both overview and posts page)
 // 
+let collabFilter = 'all';
+function setCollabFilter(val, btn) {
+ collabFilter = val;
+ document.querySelectorAll('.collab-filter-btn').forEach(b => b.classList.remove('active'));
+ if (btn) btn.classList.add('active');
+ renderPostsPage();
+}
+
 function renderPostsPage() {
  const sort = (document.getElementById('sortSelect2') || {}).value || 'date';
  let filtered = activePlatform === 'all' ? POSTS : POSTS.filter(p => p.plat === activePlatform);
+ if (collabFilter === 'collab') filtered = filtered.filter(p => p.isCollab);
+ else if (collabFilter === 'own') filtered = filtered.filter(p => !p.isCollab);
  filtered = [...filtered].sort((a,b) => {
  if (sort==='reach') return b.reach - a.reach;
  if (sort==='likes') return b.likes - a.likes;
  if (sort==='er') return b.er - a.er;
  return 0;
  });
+
+ // Show collab summary if there are collab posts
+ const collabPosts = POSTS.filter(p => p.isCollab);
+ const summaryEl = document.getElementById('collabSummary');
+ if (summaryEl) {
+  if (collabPosts.length > 0) {
+   const totalReach = collabPosts.reduce((s,p) => s + p.reach, 0);
+   const totalLikes = collabPosts.reduce((s,p) => s + p.likes, 0);
+   const totalComments = collabPosts.reduce((s,p) => s + p.comments, 0);
+   const avgEr = collabPosts.length ? (collabPosts.reduce((s,p) => s + p.er, 0) / collabPosts.length).toFixed(1) : 0;
+   summaryEl.innerHTML = `
+    <div style="font-size:0.75rem;font-weight:700;color:#e1306c;margin-right:8px">Collabs</div>
+    <div class="collab-summary-stat"><div class="val">${collabPosts.length}</div><div class="lbl">Posts</div></div>
+    <div class="collab-summary-stat"><div class="val">${totalReach>=1000?(totalReach/1000).toFixed(1)+'K':totalReach}</div><div class="lbl">Reach</div></div>
+    <div class="collab-summary-stat"><div class="val">${totalLikes>=1000?(totalLikes/1000).toFixed(1)+'K':totalLikes}</div><div class="lbl">Likes</div></div>
+    <div class="collab-summary-stat"><div class="val">${totalComments}</div><div class="lbl">Comments</div></div>
+    <div class="collab-summary-stat"><div class="val">${avgEr}%</div><div class="lbl">Avg ER</div></div>`;
+   summaryEl.style.display = 'flex';
+  } else {
+   summaryEl.style.display = 'none';
+  }
+ }
 
  const tbody = document.getElementById('postsTbody2');
  if (!tbody) return;
@@ -2382,12 +2430,13 @@ function postRow(p) {
  const catHtml = p.category
  ? `<span class="cat-tag" onclick="openModal('${p.id}','${p.plat}')" title="${p.category}">${p.category}</span>`
  : '';
+ const collabBadge = p.isCollab ? '<span class="collab-badge">Collab</span>' : '';
  return `<tr>
  <td>
  <div class="post-info">
  ${p.thumb ? `<img class="post-thumb" src="${p.thumb}" style="object-fit:cover;border-radius:8px" onerror="this.outerHTML='<div class=post-thumb style=background:${PLAT[p.plat].color}22>${p.emoji}</div>'">` : `<div class="post-thumb" style="background:${PLAT[p.plat].color}22">${p.emoji}</div>`}
  <div>
- <div class="post-cap">${p.caption}</div>
+ <div class="post-cap">${p.caption} ${collabBadge}</div>
  <div class="post-date">${p.date}</div>
  </div>
  </div>
@@ -3684,6 +3733,7 @@ async function refreshData() {
      totalViewTime: p.insights?.ig_reels_video_view_total_time || 0,
      er: p.insights?.reach ? ((p.insights?.total_interactions || 0)/p.insights.reach*100).toFixed(1)*1 : 0,
      category: p.category || null,
+     isCollab: p.isCollab || false,
     }));
     // Replace demo IG posts with live ones
     POSTS = POSTS.filter(p => p.plat !== 'ig').concat(livePosts);
