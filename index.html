@@ -3498,24 +3498,25 @@ async function refreshData() {
    const ins = {};
    const insHalf1 = {}; // first half of selected range (previous period)
    const insHalf2 = {}; // second half of selected range (current period)
+   console.log('[insights raw]', JSON.stringify(igData.insights?.map(m => m.name)));
    (igData.insights || []).forEach(m => {
     const vals = m.values || [];
-    // Some metrics return total_value instead of time-series values
-    if (m.total_value !== undefined && typeof m.total_value === 'number') {
-     ins[m.name] = m.total_value;
-    } else if (m.total_value?.value !== undefined) {
-     ins[m.name] = m.total_value.value;
-    } else {
-     const total = vals.reduce((s,v) => s + (v.value || 0), 0);
-     ins[m.name] = total;
+    // total_value metrics (likes, comments, shares, etc.) return a single number
+    if (m.total_value !== undefined) {
+     const tv = m.total_value;
+     ins[m.name] = typeof tv === 'number' ? tv : (tv?.value ?? 0);
+    } else if (vals.length > 0) {
+     // time-series metrics (reach, follower_count) return daily values
+     ins[m.name] = vals.reduce((s,v) => s + (v.value || 0), 0);
     }
-    // Split the range in half: compare second half vs first half
+    // For time-series: split for delta comparison
     if (vals.length >= 2) {
      const mid = Math.floor(vals.length / 2);
      insHalf1[m.name] = vals.slice(0, mid).reduce((s,v) => s + (v.value || 0), 0);
      insHalf2[m.name] = vals.slice(mid).reduce((s,v) => s + (v.value || 0), 0);
     }
    });
+   console.log('[insights parsed]', JSON.stringify(ins));
 
    // Helper: delta comparing second half of period vs first half
    const calcDelta = (metricName) => {
