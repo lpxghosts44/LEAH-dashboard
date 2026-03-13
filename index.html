@@ -3500,8 +3500,15 @@ async function refreshData() {
    const insHalf2 = {}; // second half of selected range (current period)
    (igData.insights || []).forEach(m => {
     const vals = m.values || [];
-    const total = vals.reduce((s,v) => s + (v.value || 0), 0);
-    ins[m.name] = total;
+    // Some metrics return total_value instead of time-series values
+    if (m.total_value !== undefined && typeof m.total_value === 'number') {
+     ins[m.name] = m.total_value;
+    } else if (m.total_value?.value !== undefined) {
+     ins[m.name] = m.total_value.value;
+    } else {
+     const total = vals.reduce((s,v) => s + (v.value || 0), 0);
+     ins[m.name] = total;
+    }
     // Split the range in half: compare second half vs first half
     if (vals.length >= 2) {
      const mid = Math.floor(vals.length / 2);
