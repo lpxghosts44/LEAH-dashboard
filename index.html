@@ -3511,13 +3511,13 @@ async function refreshData() {
    });
 
    // Helper: delta comparing second half of period vs first half
-   function calcDelta(metricName) {
+   const calcDelta = (metricName) => {
     const cur = insHalf2[metricName];
     const prev = insHalf1[metricName];
     if (cur === undefined || prev === undefined || prev === 0) return { delta: '', dir: 'up' };
     const pct = Math.round((cur - prev) / prev * 100);
     return { delta: Math.abs(pct) + '%', dir: pct >= 0 ? 'up' : 'down' };
-   }
+   };
 
    // Follower delta: latest value vs earliest value in selected range
    let followerDelta = { delta: '', dir: 'up' };
@@ -3742,6 +3742,7 @@ async function refreshData() {
   } catch(e) { console.warn('IG stories fetch:', e.message); }
 
   recomputeDerivedData();
+  renderStats();
   renderCharts();
   // Re-render whichever page is currently visible
   try { renderAudiencePage(); } catch(e) {}
