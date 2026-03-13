@@ -2809,22 +2809,8 @@ function renderGrowthPage() {
   y:{ ticks:{color:'#7a778f',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
   });
  } else {
-  // Use TIMING_DAYS data (same source as Post Timing page for consistency)
-  // If we have real posts, compute from them; otherwise use TIMING_DAYS
-  const dayEng = [0,0,0,0,0,0,0];
-  const dayCnt = [0,0,0,0,0,0,0];
-  POSTS.forEach(p => {
-   if (!p.timestamp) return;
-   const day = new Date(p.timestamp).getDay();
-   const adjDay = day === 0 ? 6 : day - 1;
-   dayEng[adjDay] += (p.er || 0);
-   dayCnt[adjDay]++;
-  });
-  const hasPostData = dayCnt.some(c => c > 0);
-  const dayData = hasPostData
-   ? dayEng.map((v, i) => dayCnt[i] ? +(v / dayCnt[i]).toFixed(1) : 0)
-   : TIMING_DAYS.views;
-
+  // Always use TIMING_DAYS (same data as Post Timing page) for consistency
+  const dayData = TIMING_DAYS.views;
   const bestIdx = dayData.indexOf(Math.max(...dayData));
   const barColors = dayData.map((v,i) => i===bestIdx ? '#c084fc' : 'rgba(192,132,252,0.35)');
 
@@ -2833,8 +2819,7 @@ function renderGrowthPage() {
   type:'bar',
   data:{
   labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
-  datasets:[{ label: hasPostData ? 'Avg Eng. Rate %' : 'Avg Views', data: dayData,
-  backgroundColor: barColors, borderRadius:5 }],
+  datasets:[{ label:'Avg Views', data: dayData, backgroundColor: barColors, borderRadius:5 }],
   },
   options:{ responsive:true, maintainAspectRatio:false,
   plugins:{ legend:{display:false} },
@@ -3275,30 +3260,34 @@ function recomputeDerivedData() {
  const dayBuckets = new Array(7).fill(null).map(() => ({ views: 0, count: 0 }));
  const hourLabels = ['6a','7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p'];
 
- // If we have online_followers data from Instagram, use it for the timing recommendations
+ // Check if online_followers data is meaningful (sum > 100)
+ let useOnlineFollowers = false;
  if (window._igOnlineFollowers) {
   const ol = window._igOnlineFollowers;
-  // online_followers is an object like { "0": 1234, "1": 1100, ... "23": 800 }
-  Object.entries(ol).forEach(([hourStr, count]) => {
-   const hour = parseInt(hourStr);
-   const hourIdx = hour - 6;
-   if (hourIdx >= 0 && hourIdx < 17) {
-    hourBuckets[hourIdx].views = count; // "views" = active followers at this hour
-    hourBuckets[hourIdx].follows = Math.round(count * 0.02); // estimate engagement
-    hourBuckets[hourIdx].count = 1;
-   }
-  });
-  TIMING_HOURS.views = hourBuckets.map(b => b.views);
-  TIMING_HOURS.follows = hourBuckets.map(b => b.follows);
+  const totalActive = Object.values(ol).reduce((s, v) => s + (v || 0), 0);
+  if (totalActive > 100) {
+   useOnlineFollowers = true;
+   Object.entries(ol).forEach(([hourStr, count]) => {
+    const hour = parseInt(hourStr);
+    const hourIdx = hour - 6;
+    if (hourIdx >= 0 && hourIdx < 17) {
+     hourBuckets[hourIdx].views = count;
+     hourBuckets[hourIdx].follows = Math.round(count * 0.02);
+     hourBuckets[hourIdx].count = 1;
+    }
+   });
+   TIMING_HOURS.views = hourBuckets.map(b => b.views);
+   TIMING_HOURS.follows = hourBuckets.map(b => b.follows);
+  }
  }
 
- // Also compute from real post timestamps for day-level data
+ // Compute from real post timestamps for both hour and day data
  POSTS.forEach(p => {
   if (!p.date && !p.timestamp) return;
   const d = p.timestamp ? new Date(p.timestamp) : new Date(p.date + ' 2026');
   const hour = d.getHours();
   const dayIdx = d.getDay(); // 0=Sun
-  if (!window._igOnlineFollowers) {
+  if (!useOnlineFollowers) {
    const hourIdx = hour - 6;
    if (hourIdx >= 0 && hourIdx < 17) {
     hourBuckets[hourIdx].views += (p.views || p.reach || 0);
@@ -3312,7 +3301,7 @@ function recomputeDerivedData() {
   dayBuckets[adjDay].count++;
  });
 
- if (!window._igOnlineFollowers) {
+ if (!useOnlineFollowers) {
   TIMING_HOURS.views = hourBuckets.map(b => b.count ? Math.round(b.views / b.count) : 0);
   TIMING_HOURS.follows = hourBuckets.map(b => b.count ? Math.round(b.follows / b.count) : 0);
  }
@@ -3520,8 +3509,9 @@ function renderTimingPage() {
  const bestDayIdx = TIMING_DAYS.views.indexOf(Math.max(...TIMING_DAYS.views));
  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
  const bestDay = dayNames[bestDayIdx] || '';
- const dataSource = window._igOnlineFollowers ? 'Based on when your followers are most active on Instagram.' : 'Based on your post performance data.';
- const viewLabel = window._igOnlineFollowers ? 'active followers' : 'avg views';
+ const hasUsefulOnline = window._igOnlineFollowers && Object.values(window._igOnlineFollowers).reduce((s,v) => s + (v||0), 0) > 100;
+ const dataSource = hasUsefulOnline ? 'Based on when your followers are most active on Instagram.' : 'Based on your post performance data.';
+ const viewLabel = hasUsefulOnline ? 'active followers' : 'avg views';
  const viewVal = TIMING_HOURS.views[bestHourIdx] >= 1000 ? (TIMING_HOURS.views[bestHourIdx]/1000).toFixed(1)+'K' : TIMING_HOURS.views[bestHourIdx];
  document.getElementById('timingRec').innerHTML = `
  <div class="timing-rec-icon"></div>
