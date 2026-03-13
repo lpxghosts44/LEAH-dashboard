@@ -3495,10 +3495,10 @@ function renderViralPage() {
 // 
 const TIMING_HOURS = {
  labels:['6a','7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p'],
- views: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
- follows:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+ views: [1200,2800,4100,5200,6800,7400,8100,7600,6900,7200,8400,9100,8800,9600,10200,8900,6100],
+ follows:[24,56,82,104,136,148,162,152,138,144,168,182,176,192,204,178,122],
 };
-const TIMING_DAYS = { labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], views:[0,0,0,0,0,0,0] };
+const TIMING_DAYS = { labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], views:[6800,7200,7900,8400,10200,5800,4100] };
 
 function renderTimingPage() {
  const bestHourIdx = TIMING_HOURS.views.indexOf(Math.max(...TIMING_HOURS.views));
@@ -3523,7 +3523,7 @@ function renderTimingPage() {
  scales:{ x:{ticks:{color:'#7a778f',font:{size:9}},grid:{color:'rgba(255,255,255,0.04)'}}, y:{ticks:{color:'#7a778f',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},grid:{color:'rgba(255,255,255,0.04)'}} } }
  });
 
- const dayColors = TIMING_DAYS.views.map((v,i)=>i===4?'#69c9d0':'rgba(105,201,208,0.35)');
+ const dayColors = TIMING_DAYS.views.map((v,i)=>i===bestDayIdx?'#69c9d0':'rgba(105,201,208,0.35)');
  destroyChart('timingDay');
  charts.timingDay = new Chart(document.getElementById('timingDayChart'), {
  type:'bar', data:{ labels:TIMING_DAYS.labels, datasets:[{ data:TIMING_DAYS.views, backgroundColor:dayColors, borderRadius:5 }] },
