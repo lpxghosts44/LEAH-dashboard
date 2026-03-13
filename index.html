@@ -2719,30 +2719,61 @@ function renderGrowthPage() {
  y:{ ticks:{color:'#7a778f',font:{size:9}}, grid:{color:'rgba(255,255,255,0.04)'} } } }
  });
 
- // Best day engagement from real posts
- const dayEng = [0,0,0,0,0,0,0];
- const dayCnt = [0,0,0,0,0,0,0];
- POSTS.forEach(p => {
-  if (!p.timestamp) return;
-  const day = new Date(p.timestamp).getDay();
-  const adjDay = day === 0 ? 6 : day - 1;
-  dayEng[adjDay] += (p.er || 0);
-  dayCnt[adjDay]++;
- });
- const dayAvgEng = dayEng.map((v, i) => dayCnt[i] ? +(v / dayCnt[i]).toFixed(1) : 0);
+ // Views over time chart (using daily views data)
+ const vData = window._igViewsDaily || [];
+ let viewLabels = [], viewVals = [];
+ if (vData.length > 0) {
+  const step = Math.max(1, Math.floor(vData.length / 20));
+  for (let i = 0; i < vData.length; i += step) {
+   const d = new Date(vData[i].date);
+   viewLabels.push(d.toLocaleDateString('en', { month: 'short', day: 'numeric' }));
+   viewVals.push(vData[i].value);
+  }
+ }
+ if (viewVals.length > 0) {
+  destroyChart('viewsGrowth');
+  charts.viewsGrowth = new Chart(document.getElementById('bestDayChart'), {
+  type:'line',
+  data:{ labels: viewLabels, datasets:[
+  { label:'Daily Views', data: viewVals, borderColor:'#69c9d0', backgroundColor:'rgba(105,201,208,0.07)', tension:0.4, fill:true },
+  ]},
+  options:{ responsive:true, maintainAspectRatio:false,
+  plugins:{ legend:{ labels:{color:'#7a778f',font:{size:11},boxWidth:12} } },
+  scales:{ x:{ ticks:{color:'#7a778f',font:{size:9},maxRotation:45}, grid:{color:'rgba(255,255,255,0.04)'} },
+  y:{ ticks:{color:'#7a778f',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
+  });
+ } else {
+  // Fallback: Best day engagement radar from real posts
+  const dayEng = [0,0,0,0,0,0,0];
+  const dayCnt = [0,0,0,0,0,0,0];
+  POSTS.forEach(p => {
+   if (!p.timestamp) return;
+   const day = new Date(p.timestamp).getDay();
+   const adjDay = day === 0 ? 6 : day - 1;
+   dayEng[adjDay] += (p.er || 0);
+   dayCnt[adjDay]++;
+  });
+  const dayAvgEng = dayEng.map((v, i) => dayCnt[i] ? +(v / dayCnt[i]).toFixed(1) : 0);
 
- destroyChart('bestDay');
- charts.bestDay = new Chart(document.getElementById('bestDayChart'), {
- type:'radar',
- data:{
- labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
- datasets:[{ label:'Avg Eng. Rate %', data: dayAvgEng,
- borderColor:'#c084fc', backgroundColor:'rgba(192,132,252,0.12)', pointBackgroundColor:'#c084fc', pointRadius:4 }],
- },
- options:{ responsive:true, maintainAspectRatio:false,
- plugins:{ legend:{display:false} },
- scales:{ r:{ ticks:{display:false}, grid:{color:'rgba(255,255,255,0.07)'}, pointLabels:{color:'#7a778f',font:{size:10}} } } }
- });
+  destroyChart('bestDay');
+  charts.bestDay = new Chart(document.getElementById('bestDayChart'), {
+  type:'radar',
+  data:{
+  labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+  datasets:[{ label:'Avg Eng. Rate %', data: dayAvgEng,
+  borderColor:'#c084fc', backgroundColor:'rgba(192,132,252,0.12)', pointBackgroundColor:'#c084fc', pointRadius:4 }],
+  },
+  options:{ responsive:true, maintainAspectRatio:false,
+  plugins:{ legend:{display:false} },
+  scales:{ r:{ ticks:{display:false}, grid:{color:'rgba(255,255,255,0.07)'}, pointLabels:{color:'#7a778f',font:{size:10}} } } }
+  });
+ }
+
+ // Follower source detection: which posts drive the most follows
+ const followSources = POSTS.filter(p => p.follows > 0).sort((a,b) => b.follows - a.follows).slice(0,5);
+ if (followSources.length > 0) {
+  window._igFollowSources = followSources;
+ }
 }
 
 // 
@@ -3159,36 +3190,58 @@ function renderHooks() {
 let POSTS_WITH_FOLLOWERS = [];
 
 function recomputeDerivedData() {
- // Leaderboard: estimate followers from engagement (likes * ~2% conversion)
+ // Leaderboard: use real follows-from-post data, fallback to estimate
  POSTS_WITH_FOLLOWERS = POSTS.map(p => ({
   ...p,
-  followers: p.saves ? Math.round(p.saves * 0.8) : Math.round((p.likes || 0) * 0.05),
+  followers: p.follows || (p.saves ? Math.round(p.saves * 0.8) : Math.round((p.likes || 0) * 0.05)),
  }));
 
- // Post Timing: compute from real post timestamps
+ // Post Timing: use online_followers data if available (real Instagram data)
  const hourBuckets = new Array(17).fill(null).map(() => ({ views: 0, follows: 0, count: 0 }));
  const dayBuckets = new Array(7).fill(null).map(() => ({ views: 0, count: 0 }));
  const hourLabels = ['6a','7a','8a','9a','10a','11a','12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p'];
 
+ // If we have online_followers data from Instagram, use it for the timing recommendations
+ if (window._igOnlineFollowers) {
+  const ol = window._igOnlineFollowers;
+  // online_followers is an object like { "0": 1234, "1": 1100, ... "23": 800 }
+  Object.entries(ol).forEach(([hourStr, count]) => {
+   const hour = parseInt(hourStr);
+   const hourIdx = hour - 6;
+   if (hourIdx >= 0 && hourIdx < 17) {
+    hourBuckets[hourIdx].views = count; // "views" = active followers at this hour
+    hourBuckets[hourIdx].follows = Math.round(count * 0.02); // estimate engagement
+    hourBuckets[hourIdx].count = 1;
+   }
+  });
+  TIMING_HOURS.views = hourBuckets.map(b => b.views);
+  TIMING_HOURS.follows = hourBuckets.map(b => b.follows);
+ }
+
+ // Also compute from real post timestamps for day-level data
  POSTS.forEach(p => {
   if (!p.date && !p.timestamp) return;
   const d = p.timestamp ? new Date(p.timestamp) : new Date(p.date + ' 2026');
   const hour = d.getHours();
   const dayIdx = d.getDay(); // 0=Sun
-  const hourIdx = hour - 6; // map 6am=0
-  if (hourIdx >= 0 && hourIdx < 17) {
-   hourBuckets[hourIdx].views += (p.reach || 0);
-   hourBuckets[hourIdx].follows += (p.saves || Math.round((p.likes || 0) * 0.05));
-   hourBuckets[hourIdx].count++;
+  if (!window._igOnlineFollowers) {
+   const hourIdx = hour - 6;
+   if (hourIdx >= 0 && hourIdx < 17) {
+    hourBuckets[hourIdx].views += (p.views || p.reach || 0);
+    hourBuckets[hourIdx].follows += (p.follows || p.saves || Math.round((p.likes || 0) * 0.05));
+    hourBuckets[hourIdx].count++;
+   }
   }
   // Shift so Mon=0
   const adjDay = dayIdx === 0 ? 6 : dayIdx - 1;
-  dayBuckets[adjDay].views += (p.reach || 0);
+  dayBuckets[adjDay].views += (p.views || p.reach || 0);
   dayBuckets[adjDay].count++;
  });
 
- TIMING_HOURS.views = hourBuckets.map(b => b.count ? Math.round(b.views / b.count) : 0);
- TIMING_HOURS.follows = hourBuckets.map(b => b.count ? Math.round(b.follows / b.count) : 0);
+ if (!window._igOnlineFollowers) {
+  TIMING_HOURS.views = hourBuckets.map(b => b.count ? Math.round(b.views / b.count) : 0);
+  TIMING_HOURS.follows = hourBuckets.map(b => b.count ? Math.round(b.follows / b.count) : 0);
+ }
  TIMING_DAYS.views = dayBuckets.map(b => b.count ? Math.round(b.views / b.count) : 0);
 
  // Viral Patterns: analyze top posts
@@ -3224,10 +3277,23 @@ function recomputeDerivedData() {
   const eveningTop = topPosts.filter(p => p.timestamp && new Date(p.timestamp).getHours() >= 17).length;
   const eveningPct = Math.round(eveningTop / topPosts.length * 100);
 
+  // Avg views for top vs all
+  const avgViews = POSTS.reduce((s, p) => s + (p.views || p.reach || 0), 0) / POSTS.length;
+  const topAvgViews = topPosts.reduce((s, p) => s + (p.views || p.reach || 0), 0) / topPosts.length;
+
+  // Follows driven by top posts
+  const topFollows = topPosts.reduce((s, p) => s + (p.follows || 0), 0);
+
+  // Avg watch time for reels in top posts
+  const topReels = topPosts.filter(p => p.avgWatchTime > 0);
+  const avgWatch = topReels.length ? (topReels.reduce((s, p) => s + p.avgWatchTime, 0) / topReels.length / 1000).toFixed(1) : 0;
+
   PATTERNS.length = 0;
   PATTERNS.push({ icon: '\u{1F4F8}', label: 'Best format', value: bestType, pct: bestTypePct });
   PATTERNS.push({ icon: '\u{1F551}', label: 'Evening posts', value: 'After 5 PM', pct: eveningPct });
-  PATTERNS.push({ icon: '\u{1F4C8}', label: 'Top vs avg reach', value: fmtNum(Math.round(topAvgReach)) + ' vs ' + fmtNum(Math.round(avgReach)), pct: Math.min(100, Math.round(topAvgReach / (avgReach || 1) * 50)) });
+  PATTERNS.push({ icon: '\u{1F4C8}', label: 'Top vs avg views', value: fmtNum(Math.round(topAvgViews)) + ' vs ' + fmtNum(Math.round(avgViews)), pct: Math.min(100, Math.round(topAvgViews / (avgViews || 1) * 50)) });
+  if (topFollows > 0) PATTERNS.push({ icon: '\u{1F465}', label: 'Follows from top posts', value: fmtNum(topFollows), pct: Math.min(100, Math.round(topFollows / POSTS.length * 10)) });
+  if (avgWatch > 0) PATTERNS.push({ icon: '\u{23F1}', label: 'Avg reel watch time', value: avgWatch + 's', pct: Math.min(100, Math.round(avgWatch * 10)) });
  }
 }
 
@@ -3237,13 +3303,15 @@ function renderLeaderboard(sortKey='followers', tabEl) {
  if (sortKey==='followers') return b.followers-a.followers;
  if (sortKey==='shares') return b.shares-a.shares;
  if (sortKey==='reach') return b.reach-a.reach;
+ if (sortKey==='views') return (b.views||0)-(a.views||0);
  return b.er-a.er;
  }).slice(0,20);
 
  document.getElementById('lbList').innerHTML = sorted.map((p,i) => {
  const isTop = i < 3;
- const mainVal = sortKey==='followers' ? p.followers : sortKey==='shares' ? p.shares : sortKey==='reach' ? (p.reach>=1000?(p.reach/1000).toFixed(0)+'K':p.reach) : p.er+'%';
- const mainLbl = sortKey==='followers' ? 'Followers' : sortKey==='shares' ? 'Shares' : sortKey==='reach' ? 'Reach' : 'Eng. Rate';
+ const mainVal = sortKey==='followers' ? p.followers : sortKey==='shares' ? p.shares : sortKey==='reach' ? fmtNum(p.reach) : sortKey==='views' ? fmtNum(p.views||0) : p.er+'%';
+ const mainLbl = sortKey==='followers' ? 'Followers' : sortKey==='shares' ? 'Shares' : sortKey==='reach' ? 'Reach' : sortKey==='views' ? 'Views' : 'Eng. Rate';
+ const watchInfo = p.avgWatchTime ? `<div class="lb-stat"><div class="lb-stat-val">${(p.avgWatchTime/1000).toFixed(1)}s</div><div class="lb-stat-lbl">Avg Watch</div></div>` : '';
  return `<div class="lb-card">
  <div class="lb-rank-col ${isTop?'top':''}">${i+1}</div>
  ${p.thumb ? `<img class="lb-thumb" src="${p.thumb}" style="object-fit:cover;border-radius:10px">` : `<div class="lb-thumb" style="background:${PLAT[p.plat].color}15">${p.emoji}</div>`}
@@ -3252,13 +3320,16 @@ function renderLeaderboard(sortKey='followers', tabEl) {
  <div class="lb-meta">
  <span class="plat-badge b-${p.plat}">${PLAT[p.plat].label}</span>
  <span>${p.date}</span>
+ ${p.media_type==='VIDEO'?'<span style="color:#69c9d0">Reel</span>':p.media_type==='CAROUSEL_ALBUM'?'<span style="color:#c084fc">Carousel</span>':''}
  ${p.category?`<span style="color:var(--accent-all)"> ${p.category}</span>`:''}
  </div>
  </div>
  <div class="lb-stats">
  <div class="lb-stat"><div class="lb-stat-val" style="color:${isTop?'var(--accent-all)':'var(--text)'}">${mainVal}</div><div class="lb-stat-lbl">${mainLbl}</div></div>
  <div class="lb-stat"><div class="lb-stat-val">${p.er}%</div><div class="lb-stat-lbl">Eng. Rate</div></div>
- <div class="lb-stat"><div class="lb-stat-val">${p.reach>=1000?(p.reach/1000).toFixed(0)+'K':p.reach}</div><div class="lb-stat-lbl">Reach</div></div>
+ <div class="lb-stat"><div class="lb-stat-val">${fmtNum(p.views||p.reach)}</div><div class="lb-stat-lbl">Views</div></div>
+ <div class="lb-stat"><div class="lb-stat-val">${p.follows||0}</div><div class="lb-stat-lbl">Follows</div></div>
+ ${watchInfo}
  </div>
  </div>`;
  }).join('');
@@ -3372,10 +3443,16 @@ const TIMING_DAYS = { labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], views:
 function renderTimingPage() {
  const bestHourIdx = TIMING_HOURS.views.indexOf(Math.max(...TIMING_HOURS.views));
  const bestHour = TIMING_HOURS.labels[bestHourIdx];
+ const bestDayIdx = TIMING_DAYS.views.indexOf(Math.max(...TIMING_DAYS.views));
+ const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+ const bestDay = dayNames[bestDayIdx] || '';
+ const dataSource = window._igOnlineFollowers ? 'Based on when your followers are most active on Instagram.' : 'Based on your post performance data.';
+ const viewLabel = window._igOnlineFollowers ? 'active followers' : 'avg views';
+ const viewVal = TIMING_HOURS.views[bestHourIdx] >= 1000 ? (TIMING_HOURS.views[bestHourIdx]/1000).toFixed(1)+'K' : TIMING_HOURS.views[bestHourIdx];
  document.getElementById('timingRec').innerHTML = `
  <div class="timing-rec-icon"></div>
- <div class="timing-rec-text"><h3>Best time to post: ${bestHour}</h3><p>Posts at this time average ${(TIMING_HOURS.views[bestHourIdx]/1000).toFixed(0)}K views ${Math.round(TIMING_HOURS.views[bestHourIdx]/TIMING_HOURS.views[0]*100-100)}% above your lowest-performing slot. Friday evenings consistently outperform other slots.</p></div>
- <div class="timing-rec-badge"><div class="time">${bestHour}</div><div class="day">FriSun</div></div>`;
+ <div class="timing-rec-text"><h3>Best time to post: ${bestDay} at ${bestHour}</h3><p>${viewVal} ${viewLabel} at peak. ${dataSource}</p></div>
+ <div class="timing-rec-badge"><div class="time">${bestHour}</div><div class="day">${bestDay}</div></div>`;
 
  const barColors = TIMING_HOURS.views.map((v,i) => i===bestHourIdx ? '#c084fc' : 'rgba(192,132,252,0.35)');
 
@@ -3426,12 +3503,14 @@ async function refreshData() {
    STATS.ig = [
     { label:'Followers', value: fmtNum(a.followers_count || 0), delta:'', dir:'up' },
     { label:'Reach', value: fmtNum(ins.reach || 0), delta:'', dir:'up' },
+    { label:'Views', value: fmtNum(ins.views || 0), delta:'', dir:'up' },
     { label:'Likes', value: fmtNum(ins.likes || 0), delta:'', dir:'up' },
     { label:'Comments', value: fmtNum(ins.comments || 0), delta:'', dir:'up' },
     { label:'Shares', value: fmtNum(ins.shares || 0), delta:'', dir:'up' },
     { label:'Saves', value: fmtNum(ins.saves || 0), delta:'', dir:'up' },
     { label:'Interactions', value: fmtNum(ins.total_interactions || 0), delta:'', dir:'up' },
-    { label:'Profile Visits', value: fmtNum(ins.profile_views || 0), delta:'', dir:'up' },
+    { label:'Reposts', value: fmtNum(ins.reposts || 0), delta:'', dir:'up' },
+    { label:'Replies', value: fmtNum(ins.replies || 0), delta:'', dir:'up' },
    ];
 
    // Store raw daily follower data for Growth page
@@ -3444,17 +3523,31 @@ async function refreshData() {
    if (reachMetric && reachMetric.values) {
     window._igReachDaily = reachMetric.values.map(v => ({ date: v.end_time, value: v.value }));
    }
+   // Store daily views data
+   const viewsMetric = (igData.insights || []).find(m => m.name === 'views');
+   if (viewsMetric && viewsMetric.values) {
+    window._igViewsDaily = viewsMetric.values.map(v => ({ date: v.end_time, value: v.value }));
+   }
+   // Store follows & unfollows breakdown
+   const followsMetric = (igData.insights || []).find(m => m.name === 'follows_and_unfollows');
+   if (followsMetric) {
+    window._igFollowsUnfollows = followsMetric.total_value || followsMetric.values?.[0]?.value || null;
+   }
+   // Store online followers (hour-by-hour map)
+   if (igData.onlineFollowers) {
+    window._igOnlineFollowers = igData.onlineFollowers;
+   }
 
    // Update "all" stats with real IG data
    STATS.all = [
     { label:'Total Followers', value: fmtNum(a.followers_count || 0), delta:'', dir:'up' },
     { label:'Total Reach', value: fmtNum(ins.reach || 0), delta:'', dir:'up' },
+    { label:'Total Views', value: fmtNum(ins.views || 0), delta:'', dir:'up' },
     { label:'Likes', value: fmtNum(ins.likes || 0), delta:'', dir:'up' },
     { label:'Comments', value: fmtNum(ins.comments || 0), delta:'', dir:'up' },
     { label:'Shares', value: fmtNum(ins.shares || 0), delta:'', dir:'up' },
     { label:'Saves', value: fmtNum(ins.saves || 0), delta:'', dir:'up' },
     { label:'Interactions', value: fmtNum(ins.total_interactions || 0), delta:'', dir:'up' },
-    { label:'Profile Visits', value: fmtNum(ins.profile_views || 0), delta:'', dir:'up' },
    ];
   }
 
@@ -3470,11 +3563,17 @@ async function refreshData() {
      media_type: p.media_type,
      date: new Date(p.timestamp).toLocaleDateString('en',{month:'short',day:'numeric'}),
      reach: p.insights?.reach || 0,
-     imp: p.insights?.reach || 0,
+     views: p.insights?.views || 0,
+     imp: p.insights?.views || p.insights?.reach || 0,
      likes: p.insights?.likes || 0,
      comments: p.insights?.comments || 0,
      shares: p.insights?.shares || 0,
      saves: p.insights?.saved || 0,
+     follows: p.insights?.follows || 0,
+     profileVisits: p.insights?.profile_visits || 0,
+     profileActivity: p.insights?.profile_activity || 0,
+     avgWatchTime: p.insights?.ig_reels_avg_watch_time || 0,
+     totalViewTime: p.insights?.ig_reels_video_view_total_time || 0,
      er: p.insights?.reach ? ((p.insights?.total_interactions || 0)/p.insights.reach*100).toFixed(1)*1 : 0,
      category: p.category || null,
     }));
@@ -3540,6 +3639,16 @@ async function refreshData() {
     const topGender = femaleTotal >= maleTotal ? `Female ${Math.round(femaleTotal/genderTotal*100)}%` : `Male ${Math.round(maleTotal/genderTotal*100)}%`;
     AUD.ig.stats = [['Top Gender', topGender], ['Followers', fmtNum(igData?.account?.followers_count || 0)]];
 
+    // Store reached/engaged audience demographics for comparison
+    if (audData.reached_gender || audData.engaged_gender) {
+     window._igReachedAudience = {};
+     window._igEngagedAudience = {};
+     ['gender','age','country','city'].forEach(key => {
+      if (audData['reached_'+key]) window._igReachedAudience[key] = audData['reached_'+key];
+      if (audData['engaged_'+key]) window._igEngagedAudience[key] = audData['engaged_'+key];
+     });
+    }
+
     // Parse countries (new format)
     if (audData.country) {
      COUNTRIES.length = 0;
@@ -3576,6 +3685,27 @@ async function refreshData() {
    }
   } catch(e) { console.warn('IG audience fetch:', e.message); }
 
+  // Fetch Instagram stories
+  try {
+   const storyData = await apiGet('/api/instagram/stories');
+   if (storyData && storyData.stories && storyData.stories.length) {
+    STORIES.ig = storyData.stories.map(s => ({
+     id: s.id, media_type: s.media_type, timestamp: s.timestamp,
+     media_url: s.media_url, permalink: s.permalink,
+     ...s.insights,
+    }));
+    // Update story KPIs with real data
+    const totalViews = STORIES.ig.reduce((s, st) => s + (st.views || st.reach || 0), 0);
+    const totalReplies = STORIES.ig.reduce((s, st) => s + (st.replies || 0), 0);
+    const totalShares = STORIES.ig.reduce((s, st) => s + (st.shares || 0), 0);
+    const totalFollows = STORIES.ig.reduce((s, st) => s + (st.follows || 0), 0);
+    STORY_KPI[0] = { label:'Total Story Views', value: fmtNum(totalViews), sub: STORIES.ig.length + ' stories', cls:'kpi-ig' };
+    STORY_KPI[2] = { label:'Story Replies', value: fmtNum(totalReplies), sub:'', cls:'kpi-tt' };
+    STORY_KPI[3] = { label:'Story Shares', value: fmtNum(totalShares), sub:'', cls:'kpi-sn' };
+    STORY_KPI[4] = { label:'Follows from Stories', value: fmtNum(totalFollows), sub:'', cls:'kpi-ig' };
+   }
+  } catch(e) { console.warn('IG stories fetch:', e.message); }
+
   recomputeDerivedData();
   renderCharts();
   // Re-render whichever page is currently visible
@@ -3585,6 +3715,7 @@ async function refreshData() {
   try { renderTimingPage(); } catch(e) {}
   try { renderViralPage(); } catch(e) {}
   try { renderPostsPage(); } catch(e) {}
+  try { renderStoriesPage(); } catch(e) {}
   showToast('✅ Live data loaded!', 'success');
  } catch (err) {
   showToast('❌ ' + err.message, 'error');
