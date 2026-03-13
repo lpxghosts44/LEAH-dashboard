@@ -2350,9 +2350,9 @@ function renderStats() {
  <div class="stat-card ${cls}">
  <div class="stat-label">${s.label}</div>
  <div class="stat-value">${s.value}</div>
- <div class="stat-delta ${s.dir==='up'?'delta-up':'delta-down'}">
- ${s.dir==='up'?'↑':'↓'} ${s.delta} vs prev period
- </div>
+ ${s.delta ? `<div class="stat-delta ${s.dir==='up'?'delta-up':'delta-down'}">
+ ${s.dir==='up'?'↑':'↓'} ${s.delta} vs last 3 days
+ </div>` : ''}
  </div>
  `).join('');
 }
@@ -3494,23 +3494,56 @@ async function refreshData() {
   if (igData && igData.account) {
    const a = igData.account;
    const ins = {};
+   const insLast3 = {};
+   const insPrev3 = {};
    (igData.insights || []).forEach(m => {
     const vals = m.values || [];
     const total = vals.reduce((s,v) => s + (v.value || 0), 0);
     ins[m.name] = total;
+    // Compute last 3 days vs previous 3 days for delta
+    if (vals.length >= 3) {
+     const last3 = vals.slice(-3).reduce((s,v) => s + (v.value || 0), 0);
+     const prev3 = vals.length >= 6
+      ? vals.slice(-6, -3).reduce((s,v) => s + (v.value || 0), 0)
+      : vals.slice(0, Math.min(3, vals.length - 3)).reduce((s,v) => s + (v.value || 0), 0);
+     insLast3[m.name] = last3;
+     insPrev3[m.name] = prev3;
+    }
    });
 
+   // Helper to compute delta string and direction
+   function calcDelta(metricName) {
+    const cur = insLast3[metricName];
+    const prev = insPrev3[metricName];
+    if (cur === undefined || prev === undefined || prev === 0) return { delta: '', dir: 'up' };
+    const pct = Math.round((cur - prev) / prev * 100);
+    return { delta: Math.abs(pct) + '%', dir: pct >= 0 ? 'up' : 'down' };
+   }
+
+   // Follower delta: compare current count to count 3 days ago from daily data
+   let followerDelta = { delta: '', dir: 'up' };
+   const fVals = ((igData.insights || []).find(m => m.name === 'follower_count') || {}).values || [];
+   if (fVals.length >= 4) {
+    const now = fVals[fVals.length - 1].value || 0;
+    const ago = fVals[fVals.length - 4].value || 0;
+    if (ago > 0) {
+     const diff = now - ago;
+     const pct = Math.round(diff / ago * 100 * 10) / 10;
+     followerDelta = { delta: (pct >= 0 ? '+' : '') + pct + '%', dir: diff >= 0 ? 'up' : 'down' };
+    }
+   }
+
    STATS.ig = [
-    { label:'Followers', value: fmtNum(a.followers_count || 0), delta:'', dir:'up' },
-    { label:'Reach', value: fmtNum(ins.reach || 0), delta:'', dir:'up' },
-    { label:'Views', value: fmtNum(ins.views || 0), delta:'', dir:'up' },
-    { label:'Likes', value: fmtNum(ins.likes || 0), delta:'', dir:'up' },
-    { label:'Comments', value: fmtNum(ins.comments || 0), delta:'', dir:'up' },
-    { label:'Shares', value: fmtNum(ins.shares || 0), delta:'', dir:'up' },
-    { label:'Saves', value: fmtNum(ins.saves || 0), delta:'', dir:'up' },
-    { label:'Interactions', value: fmtNum(ins.total_interactions || 0), delta:'', dir:'up' },
-    { label:'Reposts', value: fmtNum(ins.reposts || 0), delta:'', dir:'up' },
-    { label:'Replies', value: fmtNum(ins.replies || 0), delta:'', dir:'up' },
+    { label:'Followers', value: fmtNum(a.followers_count || 0), ...followerDelta },
+    { label:'Reach', value: fmtNum(ins.reach || 0), ...calcDelta('reach') },
+    { label:'Views', value: fmtNum(ins.views || 0), ...calcDelta('views') },
+    { label:'Likes', value: fmtNum(ins.likes || 0), ...calcDelta('likes') },
+    { label:'Comments', value: fmtNum(ins.comments || 0), ...calcDelta('comments') },
+    { label:'Shares', value: fmtNum(ins.shares || 0), ...calcDelta('shares') },
+    { label:'Saves', value: fmtNum(ins.saves || 0), ...calcDelta('saves') },
+    { label:'Interactions', value: fmtNum(ins.total_interactions || 0), ...calcDelta('total_interactions') },
+    { label:'Reposts', value: fmtNum(ins.reposts || 0), ...calcDelta('reposts') },
+    { label:'Replies', value: fmtNum(ins.replies || 0), ...calcDelta('replies') },
    ];
 
    // Store raw daily follower data for Growth page
@@ -3538,16 +3571,16 @@ async function refreshData() {
     window._igOnlineFollowers = igData.onlineFollowers;
    }
 
-   // Update "all" stats with real IG data
+   // Update "all" stats with real IG data (same deltas)
    STATS.all = [
-    { label:'Total Followers', value: fmtNum(a.followers_count || 0), delta:'', dir:'up' },
-    { label:'Total Reach', value: fmtNum(ins.reach || 0), delta:'', dir:'up' },
-    { label:'Total Views', value: fmtNum(ins.views || 0), delta:'', dir:'up' },
-    { label:'Likes', value: fmtNum(ins.likes || 0), delta:'', dir:'up' },
-    { label:'Comments', value: fmtNum(ins.comments || 0), delta:'', dir:'up' },
-    { label:'Shares', value: fmtNum(ins.shares || 0), delta:'', dir:'up' },
-    { label:'Saves', value: fmtNum(ins.saves || 0), delta:'', dir:'up' },
-    { label:'Interactions', value: fmtNum(ins.total_interactions || 0), delta:'', dir:'up' },
+    { label:'Total Followers', value: fmtNum(a.followers_count || 0), ...followerDelta },
+    { label:'Total Reach', value: fmtNum(ins.reach || 0), ...calcDelta('reach') },
+    { label:'Total Views', value: fmtNum(ins.views || 0), ...calcDelta('views') },
+    { label:'Likes', value: fmtNum(ins.likes || 0), ...calcDelta('likes') },
+    { label:'Comments', value: fmtNum(ins.comments || 0), ...calcDelta('comments') },
+    { label:'Shares', value: fmtNum(ins.shares || 0), ...calcDelta('shares') },
+    { label:'Saves', value: fmtNum(ins.saves || 0), ...calcDelta('saves') },
+    { label:'Interactions', value: fmtNum(ins.total_interactions || 0), ...calcDelta('total_interactions') },
    ];
   }
 
