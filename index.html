@@ -2739,8 +2739,9 @@ function renderGrowthPage() {
    igVals.push(fData[i].value);
   }
  } else {
-  labels = ['No data'];
-  igVals = [0];
+  // Demo data: simulated follower growth over 5 weeks
+  labels = ['Feb 7','Feb 14','Feb 21','Feb 28','Mar 7','Mar 13'];
+  igVals = [121400,122200,123100,124200,125100,126300];
  }
 
  destroyChart('growth');
@@ -2766,12 +2767,17 @@ function renderGrowthPage() {
    weekGains.push(end.value - start.value);
   }
  }
+ if (!weekLabels.length) {
+  // Demo data consistent with cumulative growth above
+  weekLabels = ['Feb W1','Feb W2','Feb W3','Feb W4','Mar W1'];
+  weekGains = [820,950,1100,890,1240];
+ }
 
  destroyChart('netGain');
  charts.netGain = new Chart(document.getElementById('netGainChart'), {
  type:'bar',
- data:{ labels: weekLabels.length ? weekLabels : ['No data'], datasets:[
- { label:'Net Follower Gain', data: weekGains.length ? weekGains : [0], backgroundColor:'rgba(192,132,252,0.7)', borderRadius:6 },
+ data:{ labels: weekLabels, datasets:[
+ { label:'Net Follower Gain', data: weekGains, backgroundColor:'rgba(192,132,252,0.7)', borderRadius:6 },
  ]},
  options:{ responsive:true, maintainAspectRatio:false,
  plugins:{ legend:{display:false} },
@@ -2803,7 +2809,8 @@ function renderGrowthPage() {
   y:{ ticks:{color:'#7a778f',font:{size:9},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
   });
  } else {
-  // Fallback: Best day engagement radar from real posts
+  // Use TIMING_DAYS data (same source as Post Timing page for consistency)
+  // If we have real posts, compute from them; otherwise use TIMING_DAYS
   const dayEng = [0,0,0,0,0,0,0];
   const dayCnt = [0,0,0,0,0,0,0];
   POSTS.forEach(p => {
@@ -2813,19 +2820,26 @@ function renderGrowthPage() {
    dayEng[adjDay] += (p.er || 0);
    dayCnt[adjDay]++;
   });
-  const dayAvgEng = dayEng.map((v, i) => dayCnt[i] ? +(v / dayCnt[i]).toFixed(1) : 0);
+  const hasPostData = dayCnt.some(c => c > 0);
+  const dayData = hasPostData
+   ? dayEng.map((v, i) => dayCnt[i] ? +(v / dayCnt[i]).toFixed(1) : 0)
+   : TIMING_DAYS.views;
+
+  const bestIdx = dayData.indexOf(Math.max(...dayData));
+  const barColors = dayData.map((v,i) => i===bestIdx ? '#c084fc' : 'rgba(192,132,252,0.35)');
 
   destroyChart('bestDay');
   charts.bestDay = new Chart(document.getElementById('bestDayChart'), {
-  type:'radar',
+  type:'bar',
   data:{
   labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
-  datasets:[{ label:'Avg Eng. Rate %', data: dayAvgEng,
-  borderColor:'#c084fc', backgroundColor:'rgba(192,132,252,0.12)', pointBackgroundColor:'#c084fc', pointRadius:4 }],
+  datasets:[{ label: hasPostData ? 'Avg Eng. Rate %' : 'Avg Views', data: dayData,
+  backgroundColor: barColors, borderRadius:5 }],
   },
   options:{ responsive:true, maintainAspectRatio:false,
   plugins:{ legend:{display:false} },
-  scales:{ r:{ ticks:{display:false}, grid:{color:'rgba(255,255,255,0.07)'}, pointLabels:{color:'#7a778f',font:{size:10}} } } }
+  scales:{ x:{ticks:{color:'#7a778f',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
+  y:{ticks:{color:'#7a778f',font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v},grid:{color:'rgba(255,255,255,0.04)'}} } }
   });
  }
 
