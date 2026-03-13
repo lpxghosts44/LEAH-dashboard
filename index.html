@@ -2587,18 +2587,25 @@ function renderCharts() {
 
 function makeReachChart() {
  destroyChart('reach');
- const datasets = activePlatform === 'all' ? [
- { label:'Instagram', data:[38400,51200,34100,44800,38400,42100,48200], borderColor:'#e1306c', backgroundColor:'rgba(225,48,108,0.07)', tension:0.4,fill:true,pointRadius:3 },
- { label:'TikTok', data:[89400,142000,76200,201000,98400,115000,134000], borderColor:'#69c9d0', backgroundColor:'rgba(105,201,208,0.07)', tension:0.4,fill:true,pointRadius:3 },
- { label:'Snapchat', data:[12400,18200,14800,16100,13200,15400,17800], borderColor:'#fffc00', backgroundColor:'rgba(255,252,0,0.04)', tension:0.4,fill:true,pointRadius:3 },
- ] : [{
- label: PLAT[activePlatform].label,
- data: {ig:[38400,51200,34100,44800,38400,42100,48200], tt:[89400,142000,76200,201000,98400,115000,134000], snap:[12400,18200,14800,16100,13200,15400,17800]}[activePlatform],
- borderColor: PLAT[activePlatform].color,
- backgroundColor: PLAT[activePlatform].color + '12', tension:0.4, fill:true, pointRadius:3,
- }];
+ // Use real Instagram reach data when available
+ const igReach = window._igReachDaily || [];
+ let labels, datasets;
+ if (igReach.length > 0 && (activePlatform === 'all' || activePlatform === 'ig')) {
+  labels = igReach.map(d => new Date(d.date).toLocaleDateString('en',{month:'short',day:'numeric'}));
+  const igData = igReach.map(d => d.value);
+  datasets = [{ label:'Instagram', data:igData, borderColor:'#e1306c', backgroundColor:'rgba(225,48,108,0.07)', tension:0.4, fill:true, pointRadius:3 }];
+ } else {
+  // Fallback mock data when no live data
+  labels = L7;
+  const mock = {ig:[38400,51200,34100,44800,38400,42100,48200], tt:[89400,142000,76200,201000,98400,115000,134000], snap:[12400,18200,14800,16100,13200,15400,17800]};
+  datasets = activePlatform === 'all' ? [
+   { label:'Instagram', data:mock.ig, borderColor:'#e1306c', backgroundColor:'rgba(225,48,108,0.07)', tension:0.4,fill:true,pointRadius:3 },
+   { label:'TikTok', data:mock.tt, borderColor:'#69c9d0', backgroundColor:'rgba(105,201,208,0.07)', tension:0.4,fill:true,pointRadius:3 },
+   { label:'Snapchat', data:mock.snap, borderColor:'#fffc00', backgroundColor:'rgba(255,252,0,0.04)', tension:0.4,fill:true,pointRadius:3 },
+  ] : [{ label:PLAT[activePlatform].label, data:mock[activePlatform], borderColor:PLAT[activePlatform].color, backgroundColor:PLAT[activePlatform].color+'12', tension:0.4, fill:true, pointRadius:3 }];
+ }
  charts.reach = new Chart(document.getElementById('reachChart'), {
- type:'line', data:{ labels:L7, datasets },
+ type:'line', data:{ labels, datasets },
  options:{ responsive:true, maintainAspectRatio:false,
  plugins:{ legend:{ labels:{ color:'#7a778f', font:{size:11}, boxWidth:12 } } },
  scales:{ x:{ ticks:{color:'#7a778f',font:{size:10}}, grid:{color:'rgba(255,255,255,0.04)'} },
@@ -2608,7 +2615,14 @@ function makeReachChart() {
 
 function makeEngChart() {
  destroyChart('eng');
- const d = {all:[48300,6900,12100],ig:[18700,2800,4900],tt:[24800,3600,6400],snap:[4800,500,800]}[activePlatform];
+ const mock = {all:[48300,6900,12100],ig:[18700,2800,4900],tt:[24800,3600,6400],snap:[4800,500,800]};
+ let d = mock[activePlatform];
+ // Use real Instagram engagement data when available
+ const raw = window._igInsightsRaw;
+ if (raw && (activePlatform === 'all' || activePlatform === 'ig')) {
+  const likes = raw.likes || 0, comments = raw.comments || 0, shares = raw.shares || 0;
+  if (likes + comments + shares > 0) d = [likes, comments, shares];
+ }
  charts.eng = new Chart(document.getElementById('engChart'), {
  type:'doughnut',
  data:{ labels:['Likes','Comments','Shares'], datasets:[{ data:d, backgroundColor:['#c084fc','#69c9d0','#e1306c'], borderWidth:0, hoverOffset:6 }] },
@@ -2619,17 +2633,32 @@ function makeEngChart() {
 
 function makeFollowerChart() {
  destroyChart('follower');
- const datasets = activePlatform === 'all' ? [
- { label:'Instagram', data:[820,950,1100,890,1240], backgroundColor:'rgba(225,48,108,0.7)', borderRadius:6 },
- { label:'TikTok', data:[1840,2100,1680,2900,2420], backgroundColor:'rgba(105,201,208,0.7)', borderRadius:6 },
- { label:'Snapchat', data:[280,320,410,290,380], backgroundColor:'rgba(255,252,0,0.7)', borderRadius:6 },
- ] : [{
- label: PLAT[activePlatform].label,
- data: {ig:[820,950,1100,890,1240],tt:[1840,2100,1680,2900,2420],snap:[280,320,410,290,380]}[activePlatform],
- backgroundColor: PLAT[activePlatform].color + 'bb', borderRadius:6,
- }];
+ // Use real Instagram follower daily data to compute weekly net gains
+ const fData = window._igFollowerDaily || [];
+ let labels, datasets;
+ if (fData.length >= 7 && (activePlatform === 'all' || activePlatform === 'ig')) {
+  const weekLabels = [], weekGains = [];
+  for (let i = 7; i <= fData.length; i += 7) {
+   const end = fData[Math.min(i - 1, fData.length - 1)];
+   const start = fData[i - 7];
+   const d = new Date(end.date);
+   weekLabels.push(d.toLocaleDateString('en',{month:'short',day:'numeric'}));
+   weekGains.push(end.value - start.value);
+  }
+  labels = weekLabels.length ? weekLabels : ['No data'];
+  datasets = [{ label:'Instagram', data:weekGains.length ? weekGains : [0], backgroundColor:'rgba(225,48,108,0.7)', borderRadius:6 }];
+ } else {
+  // Fallback mock data
+  labels = LW;
+  const mock = {ig:[820,950,1100,890,1240],tt:[1840,2100,1680,2900,2420],snap:[280,320,410,290,380]};
+  datasets = activePlatform === 'all' ? [
+   { label:'Instagram', data:mock.ig, backgroundColor:'rgba(225,48,108,0.7)', borderRadius:6 },
+   { label:'TikTok', data:mock.tt, backgroundColor:'rgba(105,201,208,0.7)', borderRadius:6 },
+   { label:'Snapchat', data:mock.snap, backgroundColor:'rgba(255,252,0,0.7)', borderRadius:6 },
+  ] : [{ label:PLAT[activePlatform].label, data:mock[activePlatform], backgroundColor:PLAT[activePlatform].color+'bb', borderRadius:6 }];
+ }
  charts.follower = new Chart(document.getElementById('followerChart'), {
- type:'bar', data:{ labels:LW, datasets },
+ type:'bar', data:{ labels, datasets },
  options:{ responsive:true, maintainAspectRatio:false,
  plugins:{ legend:{ labels:{color:'#7a778f',font:{size:11},boxWidth:12} } },
  scales:{ x:{ ticks:{color:'#7a778f',font:{size:10}}, grid:{color:'rgba(255,255,255,0.04)'} },
@@ -2639,11 +2668,33 @@ function makeFollowerChart() {
 
 function makeVisitsChart() {
  destroyChart('visits');
+ // Use real post-level profile visits data aggregated by week when available
+ let labels = LW, visitData = [14200,16800,18100,17200,22100], clickData = [2100,2800,3100,2600,3800];
+ const igPosts = POSTS.filter(p => p.plat === 'ig' && p.timestamp);
+ if (igPosts.length > 0 && (activePlatform === 'all' || activePlatform === 'ig')) {
+  // Group profile visits and link taps by week
+  const weekMap = {};
+  igPosts.forEach(p => {
+   const d = new Date(p.timestamp);
+   const weekStart = new Date(d); weekStart.setDate(d.getDate() - d.getDay());
+   const key = weekStart.toISOString().split('T')[0];
+   if (!weekMap[key]) weekMap[key] = { visits: 0, clicks: 0 };
+   weekMap[key].visits += (p.profileVisits || 0);
+   weekMap[key].clicks += (p.profileActivity || 0);
+  });
+  const weeks = Object.keys(weekMap).sort();
+  if (weeks.length > 0 && weeks.some(w => weekMap[w].visits > 0)) {
+   const recent = weeks.slice(-5);
+   labels = recent.map(w => new Date(w).toLocaleDateString('en',{month:'short',day:'numeric'}));
+   visitData = recent.map(w => weekMap[w].visits);
+   clickData = recent.map(w => weekMap[w].clicks);
+  }
+ }
  charts.visits = new Chart(document.getElementById('visitsChart'), {
  type:'line',
- data:{ labels:LW, datasets:[
- { label:'Profile Visits', data:[14200,16800,18100,17200,22100], borderColor:'#c084fc', backgroundColor:'rgba(192,132,252,0.07)', tension:0.4, fill:true },
- { label:'Link Clicks', data:[2100,2800,3100,2600,3800], borderColor:'#69c9d0', backgroundColor:'rgba(105,201,208,0.05)', tension:0.4, fill:true },
+ data:{ labels, datasets:[
+ { label:'Profile Visits', data:visitData, borderColor:'#c084fc', backgroundColor:'rgba(192,132,252,0.07)', tension:0.4, fill:true },
+ { label:'Link Clicks', data:clickData, borderColor:'#69c9d0', backgroundColor:'rgba(105,201,208,0.05)', tension:0.4, fill:true },
  ]},
  options:{ responsive:true, maintainAspectRatio:false,
  plugins:{ legend:{ labels:{color:'#7a778f',font:{size:10},boxWidth:10} } },
@@ -2654,9 +2705,16 @@ function makeVisitsChart() {
 
 function makePieChart() {
  destroyChart('pie');
+ // Use real reach data when available
+ let pieData = [412000,618000,210000];
+ const raw = window._igInsightsRaw;
+ if (raw && raw.reach) {
+  // When only IG is connected, show IG reach as the full pie
+  pieData = [raw.reach || 0, 0, 0];
+ }
  charts.pie = new Chart(document.getElementById('pieChart'), {
  type:'pie',
- data:{ labels:['Instagram','TikTok','Snapchat'], datasets:[{ data:[412000,618000,210000], backgroundColor:['#e1306c','#69c9d0','#fffc00'], borderWidth:0 }] },
+ data:{ labels:['Instagram','TikTok','Snapchat'], datasets:[{ data:pieData, backgroundColor:['#e1306c','#69c9d0','#fffc00'], borderWidth:0 }] },
  options:{ responsive:true, maintainAspectRatio:false,
  plugins:{ legend:{ position:'bottom', labels:{color:'#7a778f',font:{size:10},padding:8,boxWidth:10} } } }
  });
@@ -3578,6 +3636,9 @@ async function refreshData() {
     window._igOnlineFollowers = igData.onlineFollowers;
    }
 
+   // Store raw insight numbers globally for chart functions
+   window._igInsightsRaw = { ...ins, followers_count: a.followers_count || 0 };
+
    // Update "all" stats with real IG data (same deltas)
    STATS.all = [
     { label:'Total Followers', value: fmtNum(a.followers_count || 0), ...followerDelta },
@@ -3752,6 +3813,7 @@ async function refreshData() {
   recomputeDerivedData();
   renderStats();
   renderCharts();
+  renderConversionFunnel();
   // Re-render whichever page is currently visible
   try { renderAudiencePage(); } catch(e) {}
   try { renderGrowthPage(); } catch(e) {}
@@ -4121,9 +4183,25 @@ async function generateWeeklyInsights(){
 // CONVERSION FUNNEL
 // 
 function renderConversionFunnel() {
- const views=2100000, visits=168000, followers=12400;
- const r1=((visits/views)*100).toFixed(1), r2=((followers/visits)*100).toFixed(1), r3=((followers/views)*1000).toFixed(2);
- const steps=[{val:'2.1M',lbl:'Total Views',color:'#c084fc'},{val:'168K',lbl:'Profile Visits',color:'#69c9d0'},{val:'12.4K',lbl:'Followers Gained',color:'#4ade80'}];
+ // Use real data when available, fallback to mock
+ const raw = window._igInsightsRaw;
+ const igPosts = POSTS.filter(p => p.plat === 'ig');
+ let views = 2100000, visits = 168000, followers = 12400;
+ if (raw) {
+  views = raw.views || raw.reach || 0;
+  visits = igPosts.reduce((s, p) => s + (p.profileVisits || 0), 0) || (raw.profile_links_taps || 0);
+  // Follower gain from follower daily data
+  const fData = window._igFollowerDaily || [];
+  if (fData.length >= 2) {
+   followers = Math.max(0, fData[fData.length - 1].value - fData[0].value);
+  } else {
+   followers = igPosts.reduce((s, p) => s + (p.follows || 0), 0);
+  }
+ }
+ const r1=visits && views ? ((visits/views)*100).toFixed(1) : '0.0';
+ const r2=followers && visits ? ((followers/visits)*100).toFixed(1) : '0.0';
+ const r3=followers && views ? ((followers/views)*1000).toFixed(2) : '0.00';
+ const steps=[{val:fmtNum(views),lbl:'Total Views',color:'#c084fc'},{val:fmtNum(visits),lbl:'Profile Visits',color:'#69c9d0'},{val:fmtNum(followers),lbl:'Followers Gained',color:'#4ade80'}];
  const el=document.getElementById('conversionFunnel');
  if(!el) return;
  el.innerHTML=steps.map((s,i)=>`
