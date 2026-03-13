@@ -2346,12 +2346,14 @@ function filterPlatform(plat, sideBtn) {
 function renderStats() {
  const grid = document.getElementById('statGrid');
  const cls = activePlatform === 'all' ? 'c-all' : `c-${activePlatform}`;
+ const rangeDays = window._selectedRangeDays || 0;
+ const rangeLabel = rangeDays <= 7 ? '7d' : rangeDays <= 30 ? '30d' : rangeDays <= 90 ? '90d' : rangeDays <= 365 ? '1y' : 'All';
  grid.innerHTML = STATS[activePlatform].map(s => `
  <div class="stat-card ${cls}">
  <div class="stat-label">${s.label}</div>
  <div class="stat-value">${s.value}</div>
  ${s.delta ? `<div class="stat-delta ${s.dir==='up'?'delta-up':'delta-down'}">
- ${s.dir==='up'?'↑':'↓'} ${s.delta} vs last 3 days
+ ${s.dir==='up'?'↑':'↓'} ${s.delta} vs prev ${rangeLabel}
  </div>` : ''}
  </div>
  `).join('');
@@ -3494,42 +3496,39 @@ async function refreshData() {
   if (igData && igData.account) {
    const a = igData.account;
    const ins = {};
-   const insLast3 = {};
-   const insPrev3 = {};
+   const insHalf1 = {}; // first half of selected range (previous period)
+   const insHalf2 = {}; // second half of selected range (current period)
    (igData.insights || []).forEach(m => {
     const vals = m.values || [];
     const total = vals.reduce((s,v) => s + (v.value || 0), 0);
     ins[m.name] = total;
-    // Compute last 3 days vs previous 3 days for delta
-    if (vals.length >= 3) {
-     const last3 = vals.slice(-3).reduce((s,v) => s + (v.value || 0), 0);
-     const prev3 = vals.length >= 6
-      ? vals.slice(-6, -3).reduce((s,v) => s + (v.value || 0), 0)
-      : vals.slice(0, Math.min(3, vals.length - 3)).reduce((s,v) => s + (v.value || 0), 0);
-     insLast3[m.name] = last3;
-     insPrev3[m.name] = prev3;
+    // Split the range in half: compare second half vs first half
+    if (vals.length >= 2) {
+     const mid = Math.floor(vals.length / 2);
+     insHalf1[m.name] = vals.slice(0, mid).reduce((s,v) => s + (v.value || 0), 0);
+     insHalf2[m.name] = vals.slice(mid).reduce((s,v) => s + (v.value || 0), 0);
     }
    });
 
-   // Helper to compute delta string and direction
+   // Helper: delta comparing second half of period vs first half
    function calcDelta(metricName) {
-    const cur = insLast3[metricName];
-    const prev = insPrev3[metricName];
+    const cur = insHalf2[metricName];
+    const prev = insHalf1[metricName];
     if (cur === undefined || prev === undefined || prev === 0) return { delta: '', dir: 'up' };
     const pct = Math.round((cur - prev) / prev * 100);
     return { delta: Math.abs(pct) + '%', dir: pct >= 0 ? 'up' : 'down' };
    }
 
-   // Follower delta: compare current count to count 3 days ago from daily data
+   // Follower delta: latest value vs earliest value in selected range
    let followerDelta = { delta: '', dir: 'up' };
    const fVals = ((igData.insights || []).find(m => m.name === 'follower_count') || {}).values || [];
-   if (fVals.length >= 4) {
-    const now = fVals[fVals.length - 1].value || 0;
-    const ago = fVals[fVals.length - 4].value || 0;
-    if (ago > 0) {
-     const diff = now - ago;
-     const pct = Math.round(diff / ago * 100 * 10) / 10;
-     followerDelta = { delta: (pct >= 0 ? '+' : '') + pct + '%', dir: diff >= 0 ? 'up' : 'down' };
+   if (fVals.length >= 2) {
+    const latest = fVals[fVals.length - 1].value || 0;
+    const earliest = fVals[0].value || 0;
+    if (earliest > 0) {
+     const diff = latest - earliest;
+     const pct = Math.round(diff / earliest * 1000) / 10;
+     followerDelta = { delta: (diff >= 0 ? '+' : '') + fmtNum(Math.abs(diff)) + ' (' + (pct >= 0 ? '+' : '') + pct + '%)', dir: diff >= 0 ? 'up' : 'down' };
     }
    }
 
@@ -3582,6 +3581,9 @@ async function refreshData() {
     { label:'Saves', value: fmtNum(ins.saves || 0), ...calcDelta('saves') },
     { label:'Interactions', value: fmtNum(ins.total_interactions || 0), ...calcDelta('total_interactions') },
    ];
+
+   // Store the selected range length for display
+   window._selectedRangeDays = Math.round((until - since) / 86400) || 0;
   }
 
   // Fetch Instagram posts
